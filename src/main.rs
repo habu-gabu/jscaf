@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::io::Error;
+
 #[derive(Debug)]
 enum ProjectParseError {
     FileNotFound,
@@ -13,8 +14,34 @@ impl From<Error> for ProjectParseError {
         ProjectParseError::IoError(err)
     }
 }
+
+use clap::{Parser, Subcommand};
+
+#[derive(Parser, Debug)]
+#[command(name = "jscaf")]
+#[command(about = "Simple Java scaffolding CLI")]
+struct Args {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    /// Create a new Java file
+    New {
+        /// File type (interface, class, enum, record)
+        #[arg(short = 't', long = "type")]
+        filetype: String,
+
+        /// Fully qualified class name (e.g., service.UserService)
+        #[arg(short = 'n', long = "name")]
+        filename: String,
+    },
+}
+
 use self::ProjectParseError::{FileNotFound, IoError, MissingKey};
 fn main() {
+    Args::parse();
     match parse_project_info() {
         Ok(info) => {
             println!("Group: {}", info["group"]);
