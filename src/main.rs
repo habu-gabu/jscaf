@@ -4,20 +4,22 @@ use std::fs;
 use std::io::{Error, Write};
 use std::path::Path;
 
-#[derive(Debug)]
+const JAVA_SRC_DIR: &str = "src/main/java";
+
 enum ErrorType {
     FileNotFound,
     MissingKey(String),
-    IoError(Error),
+    IoError,
     EmptyNamespace,
     Conflict(String),
 }
 
 impl From<Error> for ErrorType {
-    fn from(err: Error) -> Self {
-        ErrorType::IoError(err)
+    fn from(_: Error) -> Self {
+        ErrorType::IoError
     }
 }
+
 use self::ErrorType::*;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -50,6 +52,40 @@ enum Commands {
         #[arg(short = 'n', long = "name")]
         namespace: String,
     },
+}
+
+fn parse_project_info() -> Result<HashMap<String, String>, ErrorType> {
+    let content = fs::read_to_string("proj.toml").map_err(|_| ErrorType::FileNotFound)?;
+    let mut map = HashMap::new();
+
+    for line in content.lines() {
+        let line = line.trim();
+
+        if let Some((key, value)) = line.split_once('=') {
+            let key = key.trim();
+            let value = value.trim().trim_matches('"');
+
+            if value.is_empty() {
+                return Err(ErrorType::MissingKey(key.to_string()));
+            }
+
+            match key {
+                "group" | "artifact" => {
+                    map.insert(key.to_string(), value.to_string());
+                }
+                _ => {}
+            }
+        }
+    }
+
+    if !map.contains_key("group") {
+        return Err(ErrorType::MissingKey("group".to_string()));
+    }
+    if !map.contains_key("artifact") {
+        return Err(ErrorType::MissingKey("artifact".to_string()));
+    }
+
+    Ok(map)
 }
 
 #[derive(Debug)]
@@ -85,7 +121,7 @@ impl JavaFileInfo {
     }
 
     fn create_file(&self) -> Result<(), ErrorType> {
-        let dir_path = Path::new("src/main/java");
+        let dir_path = Path::new(JAVA_SRC_DIR);
         let full_path = self
             .dir
             .iter()
@@ -160,65 +196,22 @@ fn main() {
             filetype,
             namespace,
         } => {
-            let java_file =
-                JavaFileInfo::new(namespace, *filetype).unwrap_or_else(|err| match err {
-                    FileNotFound => panic!("proj.toml not found: {:?}", err),
-                    MissingKey(key) => panic!("missing key: {:?}", key),
-                    IoError(err) => panic!("io error: {:?}", err),
-                    EmptyNamespace => panic!("io error: {:?}", err),
-                    Conflict(filename) => panic!("file already exists: {:?}", filename),
-                });
+            let java_file = JavaFileInfo::new(namespace, *filetype).unwrap_or_else(|err| {
+                match err {
+                    FileNotFound => eprintln!("proj.toml file khai ta banako!"),
+                    MissingKey(key) => eprintln!("{} rakhna xuttais hau!", key),
+                    EmptyNamespace => eprintln!("file ko naam ta sahi de na ho!"),
+                    _ => eprintln!("k padkyo lau feri!"),
+                }
+                std::process::exit(1);
+            });
 
-            if let Err(err) = java_file.create_file() {
-                panic!("failed to create file: {:?}", err)
+            if let Err(ErrorType::Conflict(filename)) = java_file.create_file() {
+                eprintln!("duita file eutai naam ko rakhna bhayena hau: {}", filename);
+                std::process::exit(1);
             }
 
-            println!("File Created")
+            println!("La Dami Dami!")
         }
     }
-}
-
-fn parse_project_info() -> Result<HashMap<String, String>, ErrorType> {
-    let content = fs::read_to_string("proj.toml").map_err(|_| ErrorType::FileNotFound)?;
-
-    let mut map = HashMap::new();
-
-    for line in content.lines() {
-        let line = line.trim();
-
-        if line.starts_with("group") {
-            let value = line
-                .replace("group", "")
-                .replace("=", "")
-                .replace('"', "")
-                .trim()
-                .to_string();
-            if value.is_empty() {
-                return Err(ErrorType::MissingKey("group".to_string()));
-            }
-            map.insert("group".to_string(), value);
-        }
-
-        if line.starts_with("artifact") {
-            let value = line
-                .replace("artifact", "")
-                .replace("=", "")
-                .replace('"', "")
-                .trim()
-                .to_string();
-            if value.is_empty() {
-                return Err(ErrorType::MissingKey("artifact".to_string()));
-            }
-            map.insert("artifact".to_string(), value);
-        }
-    }
-
-    if !map.contains_key("group") {
-        return Err(ErrorType::MissingKey("group".to_string()));
-    }
-    if !map.contains_key("artifact") {
-        return Err(ErrorType::MissingKey("artifact".to_string()));
-    }
-
-    Ok(map)
 }
