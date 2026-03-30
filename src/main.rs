@@ -44,7 +44,7 @@ struct Args {
 enum Commands {
     /// Create a new Java file
     New {
-        /// File type (interface, class, enum, record)
+        /// File-Type
         #[arg(short = 't', long = "type", value_enum)]
         filetype: FileType,
 

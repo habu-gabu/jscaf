@@ -2,6 +2,9 @@
 name = "jscaf"
 version = "0.1.0"
 edition = "2024"
+authors = ["Abhishek Shrestha <abhishekshrestha416@gmail.com>"]
+description = "Simple Java scaffolding CLI"
+license = "MIT"
 
 [dependencies]
 clap = { version = "4.6.0", features = ["derive"] }
