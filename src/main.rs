@@ -94,16 +94,61 @@ impl JavaFileInfo {
         fs::create_dir_all(&full_path)?;
 
         let file_path = full_path.join(&self.filename_with_ext);
+
         if file_path.exists() {
             return Err(ErrorType::Conflict(file_path.to_string_lossy().to_string()));
         }
+
         let mut file = fs::File::create(&file_path)?;
 
-        let package_name = format!("package {};", self.dir.join("."));
-
-        file.write_all(package_name.as_bytes())?;
+        file.write_all(self.create_boilerplate().as_bytes())?;
 
         Ok(())
+    }
+
+    fn create_boilerplate(&self) -> String {
+        let package_name = self.dir.join(".");
+        let class_name = self.filename_with_ext.trim_end_matches(".java");
+
+        let boilerplate = match self.filetype {
+            FileType::Class => format!(
+                "package {};\n\npublic class {} {{\n\n}}",
+                package_name, class_name
+            ),
+            FileType::Interface => format!(
+                "package {};\n\npublic interface {} {{\n\n}}",
+                package_name, class_name
+            ),
+            FileType::Enum => format!(
+                "package {};\n\npublic enum {} {{\n\n}}",
+                package_name, class_name
+            ),
+            FileType::Record => format!(
+                "package {};\n\npublic record {}() {{\n\n}}",
+                package_name, class_name
+            ),
+            FileType::Checked => format!(
+                "package {};\n\npublic class {} extends Exception {{\n\
+     \n    public {}() {{ super(); }}\n\
+     \n    public {}(String message) {{ super(message); }}\n\
+     \n    public {}(String message, Throwable cause) {{ super(message, cause); }}\n\
+     \n    public {}(Throwable cause) {{ super(cause); }}\n\
+     \n}}",
+                package_name, class_name, class_name, class_name, class_name, class_name
+            ),
+
+            FileType::Unchecked => format!(
+                "package {};\n\npublic class {} extends RuntimeException {{\n\
+     \n    public {}() {{ super(); }}\n\
+     \n    public {}(String message) {{ super(message); }}\n\
+     \n    public {}(String message, Throwable cause) {{ super(message, cause); }}\n\
+     \n    public {}(Throwable cause) {{ super(cause); }}\n\
+     \n}}",
+                package_name, class_name, class_name, class_name, class_name, class_name
+            ),
+        };
+
+        boilerplate
     }
 }
 
