@@ -7,6 +7,7 @@ enum ProjectParseError {
     FileNotFound,
     MissingKey(String),
     IoError(Error),
+    EmptyNamespace,
 }
 
 impl From<Error> for ProjectParseError {
@@ -17,7 +18,7 @@ impl From<Error> for ProjectParseError {
 
 use clap::{Parser, Subcommand, ValueEnum};
 
-#[derive(Debug, Clone, ValueEnum)]
+#[derive(Debug, Clone, Copy, ValueEnum)]
 enum FileType {
     Class,
     Interface,
@@ -49,7 +50,40 @@ enum Commands {
     },
 }
 
-use self::ProjectParseError::{FileNotFound, IoError, MissingKey};
+#[derive(Debug)]
+struct JavaFileInfo {
+    dir: Vec<String>,
+    filename_with_ext: String,
+    filetype: FileType,
+}
+
+impl JavaFileInfo {
+    fn new(namespace: &str, filetype: FileType) -> Result<Self, ProjectParseError> {
+        let info = parse_project_info()?;
+
+        let group_str = info.get("group").unwrap();
+        let artifact = info.get("artifact").unwrap();
+
+        let mut dir: Vec<String> = group_str.split('.').map(|s| s.to_string()).collect();
+
+        dir.push(artifact.to_string());
+
+        let mut packages: Vec<String> = namespace.split('.').map(|s| s.to_string()).collect();
+
+        let filename = packages.pop().ok_or(ProjectParseError::EmptyNamespace)?;
+        dir.extend(packages);
+
+        let filename_with_ext = format!("{}.java", filename);
+
+        Ok(Self {
+            dir,
+            filename_with_ext,
+            filetype,
+        })
+    }
+}
+
+use self::ProjectParseError::{EmptyNamespace, FileNotFound, IoError, MissingKey};
 fn main() {
     let args = Args::parse();
 
@@ -58,13 +92,18 @@ fn main() {
             filetype,
             namespace,
         } => {
-            let mut packages: Vec<&str> = namespace.split('.').collect();
-            let filename = packages.pop().expect("namespace cannot be empty");
-            let filename_with_ext = format!("{}.java", filename);
+            let java_file = JavaFileInfo::new(namespace, *filetype);
 
-            println!("File type: {:?}", filetype);
-            println!("Packages: {:?}", packages);
-            println!("Filename: {}", filename_with_ext);
+            if let Err(err) = java_file {
+                match err {
+                    FileNotFound => panic!("proj.toml not found: {:?}", err),
+                    MissingKey(key) => panic!("missing key: {:?}", key),
+                    IoError(err) => panic!("io error: {:?}", err),
+                    EmptyNamespace => panic!("io error: {:?}", err),
+                }
+            }
+
+            println!("{:#?}", java_file.unwrap());
         }
     }
 }
