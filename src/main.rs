@@ -1,22 +1,24 @@
+use clap::{Parser, Subcommand, ValueEnum};
 use std::collections::HashMap;
 use std::fs;
-use std::io::Error;
+use std::io::{Error, Write};
+use std::path::Path;
 
 #[derive(Debug)]
-enum ProjectParseError {
+enum ErrorType {
     FileNotFound,
     MissingKey(String),
     IoError(Error),
     EmptyNamespace,
+    Conflict(String),
 }
 
-impl From<Error> for ProjectParseError {
+impl From<Error> for ErrorType {
     fn from(err: Error) -> Self {
-        ProjectParseError::IoError(err)
+        ErrorType::IoError(err)
     }
 }
-
-use clap::{Parser, Subcommand, ValueEnum};
+use self::ErrorType::*;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum FileType {
@@ -58,7 +60,7 @@ struct JavaFileInfo {
 }
 
 impl JavaFileInfo {
-    fn new(namespace: &str, filetype: FileType) -> Result<Self, ProjectParseError> {
+    fn new(namespace: &str, filetype: FileType) -> Result<Self, ErrorType> {
         let info = parse_project_info()?;
 
         let group_str = info.get("group").unwrap();
@@ -70,7 +72,7 @@ impl JavaFileInfo {
 
         let mut packages: Vec<String> = namespace.split('.').map(|s| s.to_string()).collect();
 
-        let filename = packages.pop().ok_or(ProjectParseError::EmptyNamespace)?;
+        let filename = packages.pop().ok_or(ErrorType::EmptyNamespace)?;
         dir.extend(packages);
 
         let filename_with_ext = format!("{}.java", filename);
@@ -81,9 +83,30 @@ impl JavaFileInfo {
             filetype,
         })
     }
+
+    fn create_file(&self) -> Result<(), ErrorType> {
+        let dir_path = Path::new("src/main/java");
+        let full_path = self
+            .dir
+            .iter()
+            .fold(dir_path.to_path_buf(), |acc, d| acc.join(d));
+
+        fs::create_dir_all(&full_path)?;
+
+        let file_path = full_path.join(&self.filename_with_ext);
+        if file_path.exists() {
+            return Err(ErrorType::Conflict(file_path.to_string_lossy().to_string()));
+        }
+        let mut file = fs::File::create(&file_path)?;
+
+        let package_name = format!("package {};", self.dir.join("."));
+
+        file.write_all(package_name.as_bytes())?;
+
+        Ok(())
+    }
 }
 
-use self::ProjectParseError::{EmptyNamespace, FileNotFound, IoError, MissingKey};
 fn main() {
     let args = Args::parse();
 
@@ -92,24 +115,26 @@ fn main() {
             filetype,
             namespace,
         } => {
-            let java_file = JavaFileInfo::new(namespace, *filetype);
-
-            if let Err(err) = java_file {
-                match err {
+            let java_file =
+                JavaFileInfo::new(namespace, *filetype).unwrap_or_else(|err| match err {
                     FileNotFound => panic!("proj.toml not found: {:?}", err),
                     MissingKey(key) => panic!("missing key: {:?}", key),
                     IoError(err) => panic!("io error: {:?}", err),
                     EmptyNamespace => panic!("io error: {:?}", err),
-                }
+                    Conflict(filename) => panic!("file already exists: {:?}", filename),
+                });
+
+            if let Err(err) = java_file.create_file() {
+                panic!("failed to create file: {:?}", err)
             }
 
-            println!("{:#?}", java_file.unwrap());
+            println!("File Created")
         }
     }
 }
 
-fn parse_project_info() -> Result<HashMap<String, String>, ProjectParseError> {
-    let content = fs::read_to_string("proj.toml").map_err(|_| ProjectParseError::FileNotFound)?;
+fn parse_project_info() -> Result<HashMap<String, String>, ErrorType> {
+    let content = fs::read_to_string("proj.toml").map_err(|_| ErrorType::FileNotFound)?;
 
     let mut map = HashMap::new();
 
@@ -124,7 +149,7 @@ fn parse_project_info() -> Result<HashMap<String, String>, ProjectParseError> {
                 .trim()
                 .to_string();
             if value.is_empty() {
-                return Err(ProjectParseError::MissingKey("group".to_string()));
+                return Err(ErrorType::MissingKey("group".to_string()));
             }
             map.insert("group".to_string(), value);
         }
@@ -137,17 +162,17 @@ fn parse_project_info() -> Result<HashMap<String, String>, ProjectParseError> {
                 .trim()
                 .to_string();
             if value.is_empty() {
-                return Err(ProjectParseError::MissingKey("artifact".to_string()));
+                return Err(ErrorType::MissingKey("artifact".to_string()));
             }
             map.insert("artifact".to_string(), value);
         }
     }
 
     if !map.contains_key("group") {
-        return Err(ProjectParseError::MissingKey("group".to_string()));
+        return Err(ErrorType::MissingKey("group".to_string()));
     }
     if !map.contains_key("artifact") {
-        return Err(ProjectParseError::MissingKey("artifact".to_string()));
+        return Err(ErrorType::MissingKey("artifact".to_string()));
     }
 
     Ok(map)
