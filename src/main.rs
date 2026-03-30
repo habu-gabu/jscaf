@@ -15,7 +15,17 @@ impl From<Error> for ProjectParseError {
     }
 }
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
+
+#[derive(Debug, Clone, ValueEnum)]
+enum FileType {
+    Class,
+    Interface,
+    Enum,
+    Record,
+    Checked,
+    Unchecked,
+}
 
 #[derive(Parser, Debug)]
 #[command(name = "jscaf")]
@@ -30,30 +40,35 @@ enum Commands {
     /// Create a new Java file
     New {
         /// File type (interface, class, enum, record)
-        #[arg(short = 't', long = "type")]
-        filetype: String,
+        #[arg(short = 't', long = "type", value_enum)]
+        filetype: FileType,
 
         /// Fully qualified class name (e.g., service.UserService)
         #[arg(short = 'n', long = "name")]
-        filename: String,
+        namespace: String,
     },
 }
 
 use self::ProjectParseError::{FileNotFound, IoError, MissingKey};
 fn main() {
-    Args::parse();
-    match parse_project_info() {
-        Ok(info) => {
-            println!("Group: {}", info["group"]);
-            println!("Artifact: {}", info["artifact"]);
+    let args = Args::parse();
+
+    match &args.command {
+        Commands::New {
+            filetype,
+            namespace,
+        } => {
+            let mut packages: Vec<&str> = namespace.split('.').collect();
+            let filename = packages.pop().expect("namespace cannot be empty");
+            let filename_with_ext = format!("{}.java", filename);
+
+            println!("File type: {:?}", filetype);
+            println!("Packages: {:?}", packages);
+            println!("Filename: {}", filename_with_ext);
         }
-        Err(e) => match e {
-            FileNotFound => println!("proj.toml not found"),
-            MissingKey(key) => println!("Missing key: {}", key),
-            IoError(err) => println!("IO error: {}", err),
-        },
     }
 }
+
 fn parse_project_info() -> Result<HashMap<String, String>, ProjectParseError> {
     let content = fs::read_to_string("proj.toml").map_err(|_| ProjectParseError::FileNotFound)?;
 
